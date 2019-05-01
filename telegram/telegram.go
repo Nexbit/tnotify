@@ -9,17 +9,22 @@ package telegram
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 )
 
 // Telegram is the struct that receives command line arguments.
 type Telegram struct {
-	User  string `help:"Recipient User or Channel ID"`
-	Key   string `help:"API Key of your Telegram bot"`
-	Text  string `help:"Text of the message"`
-	Icon  string `help:"(optional) Icon before title or message text (UTF code)"`
-	Title string `help:"(optional) Title displayed in bold between the icon (if provided) and the message text"`
+	User     string `help:"Recipient User or Channel ID"`
+	Key      string `help:"API Key of your Telegram bot"`
+	Text     string `help:"Text of the message"`
+	Icon     string `help:"(optional) Icon before title or message text (UTF code)"`
+	Title    string `help:"(optional) Title displayed in bold between the icon (if provided) and the message text"`
+	Success  bool   `help:"(optional) Predefined success icon (overrides -icon argument)"`
+	Warning  bool   `help:"(optional) Predefined warning icon (overrides -icon argument)"`
+	Error    bool   `help:"(optional) Predefined error icon (overrides -icon argument)"`
+	Question bool   `help:"(optional) Predefined question mark icon (overrides -icon argument)"`
 }
 
 const sendMessageURL = "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&parse_mode=markdown&text=%s"
@@ -41,13 +46,29 @@ func (m *Telegram) Run() error {
 
 	// replace \n to %0A (LF encoded)
 	text := strings.ReplaceAll(m.Text, "\\n", "%0A")
+	icon := m.Icon
 
 	if m.Title != "" {
 		text = "*" + m.Title + "*%0A%0A" + text
 	}
-	if m.Icon != "" {
-		if code, err := strconv.ParseInt(m.Icon, 16, 32); err == nil {
+	if m.Success {
+		icon = "2705"
+	}
+	if m.Warning {
+		icon = "26A0"
+	}
+	if m.Error {
+		icon = "1F6A8"
+	}
+	if m.Question {
+		icon = "2753"
+	}
+	if icon != "" {
+		code, err := strconv.ParseInt(icon, 16, 32)
+		if err == nil {
 			text = string(code) + " " + text
+		} else {
+			fmt.Fprintf(os.Stderr, "Error parsing UTF code %q to int - sending message without icon\n", icon)
 		}
 	}
 
