@@ -1,0 +1,14 @@
+{
+    "Dir": ".",
+    "Template": ".header.txt",
+    "Includes": [
+        "**.go",
+        "**/**.go"
+    ],
+    "Excludes": [],
+    "UseDefaultExcludes": true,
+    "Properties": {
+        "Year": "2019",
+        "Owner": "Nexbit di Paolo Furini"
+    }
+  }
