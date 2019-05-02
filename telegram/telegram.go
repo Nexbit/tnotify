@@ -7,8 +7,12 @@
 package telegram
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -21,14 +25,22 @@ type Telegram struct {
 	Text     string `help:"Text of the message"`
 	Icon     string `help:"(optional) Icon before title or message text (UTF code)"`
 	Title    string `help:"(optional) Title displayed in bold between the icon (if provided) and the message text"`
-	Html     bool   `help:"(optional) Use html instead of markdown in the message"`
+	HTML     bool   `help:"(optional) Use html instead of markdown in the message"`
 	Success  bool   `help:"(optional) Predefined success icon (overrides -icon argument)"`
 	Warning  bool   `help:"(optional) Predefined warning icon (overrides -icon argument)"`
 	Error    bool   `help:"(optional) Predefined error icon (overrides -icon argument)"`
 	Question bool   `help:"(optional) Predefined question mark icon (overrides -icon argument)"`
+	Silent   bool   `help:"(optional) Send message in silent mode (no user notification on the client)"`
+	Log      bool   `help:"(optional) Print the API response to stdout on success"`
 }
 
-const sendMessageURL = "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&parse_mode=%s&text=%s"
+type apiResponse struct {
+	Ok          bool   `json:"ok"`
+	Description string `json:"description"`
+}
+
+const apiURL = "https://api.telegram.org"
+const sendMessageRes = "/bot%s/sendMessage"
 
 // NewTelegram returns a new Telegram struct.
 func NewTelegram() *Telegram { return &Telegram{} }
@@ -45,20 +57,20 @@ func (m *Telegram) Run() error {
 		return fmt.Errorf("-text is mandatory")
 	}
 
-	// replace \n to %0A (LF encoded)
-	text := strings.ReplaceAll(m.Text, "\\n", "%0A")
+	// replace \n to actual new-line
+	text := strings.ReplaceAll(m.Text, "\\n", "\n")
 	icon := m.Icon
 	parseMode := "markdown"
 	boldStart := "*"
 	boldEnd := "*"
-	if m.Html {
+	if m.HTML {
 		parseMode = "html"
 		boldStart = "<b>"
 		boldEnd = "</b>"
 	}
 
 	if m.Title != "" {
-		text = boldStart + m.Title + boldEnd + "%0A%0A" + text
+		text = boldStart + m.Title + boldEnd + "\n\n" + text
 	}
 	if m.Success {
 		icon = "2705"
@@ -81,12 +93,48 @@ func (m *Telegram) Run() error {
 		}
 	}
 
-	resp, err := http.Get(fmt.Sprintf(sendMessageURL, m.Key, m.User, parseMode, text))
+	// make a POST request to telegram API
+	data := url.Values{}
+	data.Set("parse_mode", parseMode)
+	data.Set("chat_id", m.User)
+	data.Set("text", text)
+	data.Set("disable_notification", strconv.FormatBool(m.Silent))
+
+	destURL, _ := url.ParseRequestURI(apiURL)
+	destURL.Path = fmt.Sprintf(sendMessageRes, m.Key)
+	destURLStr := destURL.String()
+
+	client := &http.Client{}
+	req, _ := http.NewRequest("POST", destURLStr, strings.NewReader(data.Encode()))
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded; param=value")
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 
 	defer resp.Body.Close()
+	// Let's check if the work actually is done
+	// We have seen inconsistencies even when we get 200 OK response
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("Couldn't parse response body. %+v", err)
+	}
+
+	if m.Log {
+		log.Println("Response:", string(body))
+	}
+
+	var apiResp = new(apiResponse)
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return err
+	}
+	if !apiResp.Ok {
+		description := apiResp.Description
+		if description == "" {
+			description = "Unknown error"
+		}
+		return fmt.Errorf("Telegram API error: " + description)
+	}
 
 	return nil
 }
